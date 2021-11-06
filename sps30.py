@@ -31,99 +31,114 @@
     Units for measurements:
         PM1, PM2.5, PM4 and PM10 are in ug/m^3, number concentrations are in #/cm^3
 """
-import serial, struct, time
-from operator import invert
+import struct
 
 class SPS30:
-    def __init__(self, port):
-        self.port = port
-        self.ser = serial.Serial(self.port, baudrate=115200, stopbits=1, parity="N",  timeout=2)
+    def __init__(self, selectUART):
+
+        self.uart = machine.UART(selectUART, 115200, parity=None, stop=1, timeout=2)
     
     def start(self):
-        self.ser.write([0x7E, 0x00, 0x00, 0x02, 0x01, 0x03, 0xF9, 0x7E])
+
+        self.uart.write(b'\x7E\x00\x00\x02\x01\x03\xF9\x7E')
         
     def stop(self):
-        self.ser.write([0x7E, 0x00, 0x01, 0x00, 0xFE, 0x7E])
+
+        self.uart.write(b'\x7E\x00\x01\x00\xFE\x7E')
     
     def read_values(self):
-        self.ser.flushInput()
-        # Ask for data
-        self.ser.write([0x7E, 0x00, 0x03, 0x00, 0xFC, 0x7E])
-        toRead = self.ser.inWaiting()
-        # Wait for full response
-        # (may be changed for looking for the stop byte 0x7E)
-        while toRead < 47:
-            toRead = self.ser.inWaiting()
-            time.sleep(0.1)
-        raw = self.ser.read(toRead)
-        
-        # Reverse byte-stuffing
-        if b'\x7D\x5E' in raw:
-            raw = raw.replace(b'\x7D\x5E', b'\x7E')
-        if b'\x7D\x5D' in raw:
-            raw = raw.replace(b'\x7D\x5D', b'\x7D')
-        if b'\x7D\x31' in raw:
-            raw = raw.replace(b'\x7D\x31', b'\x11')
-        if b'\x7D\x33' in raw:
-            raw = raw.replace(b'\x7D\x33', b'\x13')
-        
-        # Discard header and tail
+
+        self.uart.read()
+
+        self.uart.write(b'\x7E\x00\x03\x00\xFC\x7E')
+
+        raw = self.reverse_byte_stuffing(self.uart.read())
+
         rawData = raw[5:-2]
         
         try:
+
             data = struct.unpack(">ffffffffff", rawData)
+
         except struct.error:
+
             data = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+
         return data
     
     def read_serial_number(self):
-        self.ser.flushInput()
-        self.ser.write([0x7E, 0x00, 0xD0, 0x01, 0x03, 0x2B, 0x7E])
-        toRead = self.ser.inWaiting()
-        while toRead < 24:
-            toRead = self.ser.inWaiting()
-            time.sleep(0.1)
-        raw = self.ser.read(toRead)
+
+        self.uart.read()
+
+        self.uart.write(b'\x7E\x00\xD0\x01\x03\x2B\x7E')
+
+        raw = self.reverse_byte_stuffing(self.uart.read())
         
-        # Reverse byte-stuffing
-        if b'\x7D\x5E' in raw:
-            raw = raw.replace(b'\x7D\x5E', b'\x7E')
-        if b'\x7D\x5D' in raw:
-            raw = raw.replace(b'\x7D\x5D', b'\x7D')
-        if b'\x7D\x31' in raw:
-            raw = raw.replace(b'\x7D\x31', b'\x11')
-        if b'\x7D\x33' in raw:
-            raw = raw.replace(b'\x7D\x33', b'\x13')
-        
-        # Discard header, tail and decode
         serial_number = raw[5:-3].decode('ascii')
+
         return serial_number
 
-    def read_firmware_version(self):
-        self.ser.flushInput()
-        self.ser.write([0x7E, 0x00, 0xD1, 0x00, 0x2E, 0x7E])
-        toRead = self.ser.inWaiting()
-        while toRead < 7:
-            toRead = self.ser.inWaiting()
-            time.sleep(0.1)
-        raw = self.ser.read(toRead)
-        
-        # Reverse byte-stuffing
-        if b'\x7D\x5E' in raw:
-            raw = raw.replace(b'\x7D\x5E', b'\x7E')
-        if b'\x7D\x5D' in raw:
-            raw = raw.replace(b'\x7D\x5D', b'\x7D')
-        if b'\x7D\x31' in raw:
-            raw = raw.replace(b'\x7D\x31', b'\x11')
-        if b'\x7D\x33' in raw:
-            raw = raw.replace(b'\x7D\x33', b'\x13')
-        
-        # Discard header and tail
-        data = raw[5:-2]
-        # Unpack data
-        data = struct.unpack(">bbbbbbb", data)
-        firmware_version = str(data[0]) + "." + str(data[1])
-        return firmware_version
+    def trigger_fan_clean(self):
+
+        self.uart.read()
+
+        self.uart.write(b'\x7E\x00\x56\x00\xA9\x7E')
+
+        return
+
+    def sleep(self):
+
+        self.uart.read()
+
+        self.uart.write(b'\x7E\x00\x10\x00\xEF\x7E')
+
+        return
+
+    def wake(self):
+
+        self.uart.read()
+
+        self.uart.write(b'\xFF')
+
+        self.uart.write(b'\x7E\x00\x11\x00\xEE\x7E')
+
+        raw = self.reverse_byte_stuffing(self.uart.read())
+
+        return raw
     
-    def close_port(self):
-        self.ser.close()
+
+    def read_firmware_version(self):
+
+        self.uart.read()
+
+        self.uart.write(b'\x7E\x00\xD1\x00\x2E\x7E')
+
+        raw = self.reverse_byte_stuffing(self.uart.read())
+
+        data = raw[5:-2]
+
+        data = struct.unpack(">bbbbbbb", data)
+
+        firmware_version = str(data[0]) + "." + str(data[1])
+
+        return firmware_version
+
+    def reverse_byte_stuffing(self, raw):
+
+        if b'\x7D\x5E' in raw:
+
+            raw = raw.replace(b'\x7D\x5E', b'\x7E')
+
+        if b'\x7D\x5D' in raw:
+
+            raw = raw.replace(b'\x7D\x5D', b'\x7D')
+
+        if b'\x7D\x31' in raw:
+
+            raw = raw.replace(b'\x7D\x31', b'\x11')
+
+        if b'\x7D\x33' in raw:
+            
+            raw = raw.replace(b'\x7D\x33', b'\x13')
+
+        return raw
