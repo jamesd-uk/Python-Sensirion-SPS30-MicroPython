@@ -31,43 +31,68 @@
     Units for measurements:
         PM1, PM2.5, PM4 and PM10 are in ug/m^3, number concentrations are in #/cm^3
 """
-import struct
+"""if raw[-1] == 126 and raw[0] == 126:"""
+
+import struct, time
 
 class SPS30:
     def __init__(self, selectUART):
-
         self.uart = machine.UART(selectUART, 115200, parity=None, stop=1, timeout=2)
     
     def start(self):
-
         self.uart.write(b'\x7E\x00\x00\x02\x01\x03\xF9\x7E')
         
     def stop(self):
-
         self.uart.write(b'\x7E\x00\x01\x00\xFE\x7E')
     
     def read_values(self):
-
         self.uart.read()
 
         self.uart.write(b'\x7E\x00\x03\x00\xFC\x7E')
 
-        raw = self.reverse_byte_stuffing(self.uart.read())
+        time.sleep(0.030)
 
-        rawData = raw[5:-2]
-        
+        raw = self.read_in()
+            
         try:
-
-            data = struct.unpack(">ffffffffff", rawData)
+            data = struct.unpack(">ffffffffff", raw)
 
         except struct.error:
-
             data = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
 
         return data
+
+    def read_in(self):
+        raw = self.uart.read()
+
+        sumOfAllBytes = 0
+
+        if b'\x7D\x5E' in raw:
+            raw = raw.replace(b'\x7D\x5E', b'\x7E')
+
+        if b'\x7D\x5D' in raw:
+            raw = raw.replace(b'\x7D\x5D', b'\x7D')
+
+        if b'\x7D\x31' in raw:
+            raw = raw.replace(b'\x7D\x31', b'\x11')
+        
+        if b'\x7D\x33' in raw:
+            raw = raw.replace(b'\x7D\x33', b'\x13')
+
+        for i in raw[1:-2]:
+            sumOfAllBytes += i
+
+        calcuatedChecksum = (sumOfAllBytes & 0b11111111) ^ 0b11111111
+
+        if raw[-2] != calcuatedChecksum:
+            print("fail")
+
+        return raw[5:-2]
+
+
+
     
     def read_serial_number(self):
-
         self.uart.read()
 
         self.uart.write(b'\x7E\x00\xD0\x01\x03\x2B\x7E')
@@ -79,7 +104,6 @@ class SPS30:
         return serial_number
 
     def trigger_fan_clean(self):
-
         self.uart.read()
 
         self.uart.write(b'\x7E\x00\x56\x00\xA9\x7E')
@@ -87,15 +111,20 @@ class SPS30:
         return
 
     def sleep(self):
-
         self.uart.read()
 
         self.uart.write(b'\x7E\x00\x10\x00\xEF\x7E')
 
         return
 
-    def wake(self):
+    def soft_reset(self):
+        self.uart.read()
 
+        self.uart.write(b'\x7E\x00\xD3\x00\x2C\x7E')
+
+        return
+
+    def wake(self):
         self.uart.read()
 
         self.uart.write(b'\xFF')
@@ -108,7 +137,6 @@ class SPS30:
     
 
     def read_firmware_version(self):
-
         self.uart.read()
 
         self.uart.write(b'\x7E\x00\xD1\x00\x2E\x7E')
@@ -124,21 +152,16 @@ class SPS30:
         return firmware_version
 
     def reverse_byte_stuffing(self, raw):
-
         if b'\x7D\x5E' in raw:
-
             raw = raw.replace(b'\x7D\x5E', b'\x7E')
 
         if b'\x7D\x5D' in raw:
-
             raw = raw.replace(b'\x7D\x5D', b'\x7D')
 
         if b'\x7D\x31' in raw:
-
             raw = raw.replace(b'\x7D\x31', b'\x11')
-
+        
         if b'\x7D\x33' in raw:
-            
             raw = raw.replace(b'\x7D\x33', b'\x13')
 
         return raw
