@@ -1,10 +1,7 @@
 """
-    Library to read data from Sensirion SPS30 particulate matter sensor
-
-    by
-    Szymon Jakubiak
-    Twitter: @SzymonJakubiak
-    LinkedIn: https://pl.linkedin.com/in/szymon-jakubiak
+    A fork of Szymon Jakubiak's library, written for the Raspberry Pi Pico running MicroPython.
+    I highly recommend downloading a copy of the SPS30 datasheet from Sensirion's website if
+    you wish to use/understand this library.
 
     MIT License
 
@@ -28,78 +25,66 @@
     OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
     SOFTWARE.
 
-    Units for measurements:
-        PM1, PM2.5, PM4 and PM10 are in ug/m^3, number concentrations are in #/cm^3
 """
-"""if buildCommand[-1] == 126 and buildCommand[0] == 126:"""
 
 import struct, time
 
 class SPS30:
     def __init__(self, selectUART):
         self.uart = machine.UART(selectUART, 115200, parity=None, stop=1, timeout=2)
-    
-    def start(self):
-        self.uart.read()
+        #The RPi Pico has two UART interfaces, 0 and 1.
 
-        self.send(b'\x00', b'\x01\x03')
+        self.led = machine.Pin(25, machine.Pin.OUT)
+        #Uses the build-in LED to indicate activity.
 
-        time.sleep(0.030)
-
-        returnData = self.read()
-
-        return returnData[1]
-        
-    def stop(self):
-        self.uart.read()
-
-        self.send(b'\x01', b'')
-
-        time.sleep(0.030)
-
-        returnData = self.read()
-
-        return returnData[1]
-
-    def send(self, txCommand, txParam):      
+    def send(self, txCommand, txParam):
         txParamLength = len(txParam).to_bytes(1,"big")
 
-        buildCommand = b'\x00'
+        buildFrame = b'\x00'
 
-        buildCommand += txCommand + txParamLength + txParam
+        buildFrame += txCommand + txParamLength + txParam
+        #At this point, the frame is partially built. It has the address (always 0x00), the SHDLC command (txCommand),
+        #the command parameter length (txParamLength), and the command parameter (txParam).
 
         sumOfAllBytes = 0
 
-        for i in buildCommand:
+        for i in buildFrame:
             sumOfAllBytes += i
 
         calculatedChecksum = (sumOfAllBytes & 0b11111111) ^ 0b11111111
+        #Per the datasheet, the checksum is built before byte-stuffing. All bytes in the frame are added together.
+        #The least significant byte of the result is inverted, yielding the checksum.
 
-        buildCommand += calculatedChecksum.to_bytes(1,"big")
+        buildFrame += calculatedChecksum.to_bytes(1,"big")
 
-        if b'\x7E' in buildCommand:
-            buildCommand = buildCommand.replace(b'\x7E', b'\x7D\x5E')
+        if b'\x7E' in buildFrame:
+            buildFrame = buildFrame.replace(b'\x7E', b'\x7D\x5E')
 
-        if b'\x7D' in buildCommand:
-            buildCommand = buildCommand.replace(b'\x7D', b'\x7D\x5D')
+        if b'\x7D' in buildFrame:
+            buildFrame = buildFrame.replace(b'\x7D', b'\x7D\x5D')
 
-        if b'\x11' in buildCommand:
-            buildCommand = buildCommand.replace(b'\x11', b'\x7D\x31')
+        if b'\x11' in buildFrame:
+            buildFrame = buildFrame.replace(b'\x11', b'\x7D\x31')
         
-        if b'\x13' in buildCommand:
-            buildCommand = buildCommand.replace(b'\x13', b'\x7D\x33')
+        if b'\x13' in buildFrame:
+            buildFrame = buildFrame.replace(b'\x13', b'\x7D\x33')
+        #Byte-stuffing (essentially escape codes). Prevents special bytes appearing legitimately within the frame data.
 
-        buildCommand  = b'\x7E' + buildCommand + b'\x7E'
+        buildFrame  = b'\x7E' + buildFrame + b'\x7E'
+        #Add the start/stop bytes at either end of the frame. The frame is now complete.
 
-        self.uart.write(buildCommand)
+        self.uart.write(buildFrame)
 
     def read(self):
+
         inputBytes = self.uart.read()
 
         if inputBytes == None:
             return [None, None]
+        #If nothing is read from the UART buffer, return None.
 
         inputBytes = inputBytes[1:-1]
+        #Trim the start/stop bytes.
 
         if b'\x7D\x5E' in inputBytes:
             inputBytes = inputBytes.replace(b'\x7D\x5E', b'\x7E')
@@ -112,6 +97,7 @@ class SPS30:
         
         if b'\x7D\x33' in inputBytes:
             inputBytes = inputBytes.replace(b'\x7D\x33', b'\x13')
+        #Reverse byte-stuffing, as above.
 
         allegedChecksum = inputBytes[-1]
 
@@ -124,6 +110,7 @@ class SPS30:
 
         if allegedChecksum != calcuatedChecksum:
             return [None, None]
+        #Verifies our own checksum calculation against the value provided by the SPS30. Returns None if mismatch.
 
         stateByte = inputBytes[2]
 
@@ -133,10 +120,46 @@ class SPS30:
             rxData = inputBytes[4:-1]
         else:
             rxData = 0
+        #If lengthByte is zero, the SPS30 returned an empty frame.
 
         return [rxData, stateByte]
 
-    def get_values(self):
+    def start(self):
+        led.toggle()
+    
+        self.uart.read()
+        #Flush buffer.
+
+        self.send(b'\x00', b'\x01\x03')
+
+        time.sleep(0.030)
+        #Per the datasheet, most SHDLC commands have a maximum response time of 20ms. To be sure, we're waiting 30ms.
+
+        returnData = self.read()
+        #The SPS30 will only return an empty frame for this command, but the state byte is worth getting.
+
+        led.toggle()
+
+        return returnData[1]
+
+    def stop(self):
+        led.toggle()
+
+        self.uart.read()
+
+        self.send(b'\x01', b'')
+
+        time.sleep(0.030)
+
+        returnData = self.read()
+
+        led.toggle()
+
+        return returnData[1]
+
+    def read_values(self):
+        led.toggle()
+
         self.uart.read()
 
         self.send(b'\x03', b'')
@@ -145,16 +168,88 @@ class SPS30:
 
         returnData = self.read()
 
-        if returnData[0] == None:
-            values = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-
-        else:
+        try:
             values = struct.unpack(">ffffffffff", returnData[0])
+
+        except:
+
+            values = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        #Unpack returned bytes into an array of floating point numbers.
+
+        led.toggle()
 
         return [values, returnData[1]]
 
+    def sleep(self):
+        led.toggle()
+        
+        self.uart.read()
+
+        self.send(b'\x10', b'')
+
+        time.sleep(0.030)
+
+        returnData = self.read()
+
+        led.toggle()
+
+        return returnData[1]
+
+    def wake(self):
+        led.toggle()
+
+        self.uart.read()
+
+        self.send(b'\x11', b'')
+
+        self.uart.read()
+
+        time.sleep(0.030)
+
+        self.send(b'\x11', b'')
+        #Per the datasheet, sending this command twice within 100ms will wake-up the UART interface.
+
+        returnData = self.read()
+
+        led.toggle()
+
+        return returnData[1]
+
+    def trigger_fan_clean(self):
+        led.toggle()
+
+        self.uart.read()
+
+        self.send(b'\x56', b'')
+
+        time.sleep(0.030)
+
+        returnData = self.read()
+
+        led.toggle()
+
+        return returnData[1]
+
+    def read_cleaning_interval(self):
+        #This doesn't work yet.
+
+        led.toggle()
+
+        self.uart.read()
+
+        self.send(b'\x80',b'\x00')
+
+        time.sleep(0.030)
+
+        returnData = self.read()
+
+        led.toggle()
+
+        return [returnData[0], returnData[1]]
     
     def device_info(self, requestedInfo):
+        led.toggle()
+
         self.uart.read()
 
         if requestedInfo == "productType":
@@ -171,55 +266,13 @@ class SPS30:
 
         values = values[0:-1].decode('ascii')
 
+        led.toggle()
+
         return [values, returnData[1]]
 
-    def trigger_fan_clean(self):
-        self.uart.read()
-
-        self.send(b'\x56', b'')
-
-        time.sleep(0.030)
-
-        returnData = self.read()
-
-        return returnData[1]
-
-    def sleep(self):
-        self.uart.read()
-
-        self.send(b'\x10', b'')
-
-        time.sleep(0.030)
-
-        returnData = self.read()
-
-        return returnData[1]
-
-    def soft_reset(self):
-        self.uart.read()
-
-        self.send(b'\xD3', b'')
-
-        time.sleep(0.030)
-
-        returnData = self.read()
-
-        return returnData[1]
-
-    def wake(self):
-        self.uart.read()
-
-        self.send(b'\x11', b'')
-
-        time.sleep(0.030)
-
-        self.send(b'\x11', b'')
-
-        returnData = self.read()
-
-        return returnData[1]
-
     def read_version(self):
+        led.toggle()
+
         self.uart.read()
 
         self.send(b'\xD1',b'')
@@ -236,4 +289,44 @@ class SPS30:
 
         SHDLCVer = str(versionsPreSplit[5]) + "." + str(versionsPreSplit[6])
 
+        led.toggle()
+
         return [[firmwareVer, hardwareRev, SHDLCVer], returnData[1]]
+
+    def read_register(self, toClear):
+        led.toggle()
+        
+        self.uart.read()
+
+        if toClear == True:
+            self.send(b'\xD2',b'\x01')
+
+        else:
+            self.send(b'\xD2',b'\x00')
+
+        time.sleep(0.030)
+
+        returnData = self.read()
+
+        registerData = returnData[0]
+
+        registerData = struct.unpack("bbbb", registerData)
+
+        led.toggle()
+
+        return [registerData, returnData[1]]
+
+    def reset(self):
+        led.toggle()
+        
+        self.uart.read()
+
+        self.send(b'\xD3', b'')
+
+        time.sleep(0.030)
+
+        returnData = self.read()
+
+        led.toggle()
+
+        return returnData[1]
