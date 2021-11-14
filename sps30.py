@@ -31,7 +31,7 @@
     Units for measurements:
         PM1, PM2.5, PM4 and PM10 are in ug/m^3, number concentrations are in #/cm^3
 """
-"""if raw[-1] == 126 and raw[0] == 126:"""
+"""if buildCommand[-1] == 126 and buildCommand[0] == 126:"""
 
 import struct, time
 
@@ -40,128 +40,200 @@ class SPS30:
         self.uart = machine.UART(selectUART, 115200, parity=None, stop=1, timeout=2)
     
     def start(self):
-        self.uart.write(b'\x7E\x00\x00\x02\x01\x03\xF9\x7E')
-        
-    def stop(self):
-        self.uart.write(b'\x7E\x00\x01\x00\xFE\x7E')
-    
-    def read_values(self):
         self.uart.read()
 
-        self.uart.write(b'\x7E\x00\x03\x00\xFC\x7E')
+        self.send(b'\x00', b'\x01\x03')
 
         time.sleep(0.030)
 
-        raw = self.read_in()
-            
-        try:
-            data = struct.unpack(">ffffffffff", raw)
+        returnData = self.read()
 
-        except struct.error:
-            data = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+        return returnData[1]
+        
+    def stop(self):
+        self.uart.read()
 
-        return data
+        self.send(b'\x01', b'')
 
-    def read_in(self):
-        raw = self.uart.read()
+        time.sleep(0.030)
+
+        returnData = self.read()
+
+        return returnData[1]
+
+    def send(self, txCommand, txParam):      
+        txParamLength = len(txParam).to_bytes(1,"big")
+
+        buildCommand = b'\x00'
+
+        buildCommand += txCommand + txParamLength + txParam
 
         sumOfAllBytes = 0
 
-        if b'\x7D\x5E' in raw:
-            raw = raw.replace(b'\x7D\x5E', b'\x7E')
+        for i in buildCommand:
+            sumOfAllBytes += i
 
-        if b'\x7D\x5D' in raw:
-            raw = raw.replace(b'\x7D\x5D', b'\x7D')
+        calculatedChecksum = (sumOfAllBytes & 0b11111111) ^ 0b11111111
 
-        if b'\x7D\x31' in raw:
-            raw = raw.replace(b'\x7D\x31', b'\x11')
+        buildCommand += calculatedChecksum.to_bytes(1,"big")
+
+        if b'\x7E' in buildCommand:
+            buildCommand = buildCommand.replace(b'\x7E', b'\x7D\x5E')
+
+        if b'\x7D' in buildCommand:
+            buildCommand = buildCommand.replace(b'\x7D', b'\x7D\x5D')
+
+        if b'\x11' in buildCommand:
+            buildCommand = buildCommand.replace(b'\x11', b'\x7D\x31')
         
-        if b'\x7D\x33' in raw:
-            raw = raw.replace(b'\x7D\x33', b'\x13')
+        if b'\x13' in buildCommand:
+            buildCommand = buildCommand.replace(b'\x13', b'\x7D\x33')
 
-        for i in raw[1:-2]:
+        buildCommand  = b'\x7E' + buildCommand + b'\x7E'
+
+        self.uart.write(buildCommand)
+
+    def read(self):
+        inputBytes = self.uart.read()
+
+        if inputBytes == None:
+            return [None, None]
+
+        inputBytes = inputBytes[1:-1]
+
+        if b'\x7D\x5E' in inputBytes:
+            inputBytes = inputBytes.replace(b'\x7D\x5E', b'\x7E')
+
+        if b'\x7D\x5D' in inputBytes:
+            inputBytes = inputBytes.replace(b'\x7D\x5D', b'\x7D')
+
+        if b'\x7D\x31' in inputBytes:
+            inputBytes = inputBytes.replace(b'\x7D\x31', b'\x11')
+        
+        if b'\x7D\x33' in inputBytes:
+            inputBytes = inputBytes.replace(b'\x7D\x33', b'\x13')
+
+        allegedChecksum = inputBytes[-1]
+
+        sumOfAllBytes = 0
+
+        for i in inputBytes[0:-1]:
             sumOfAllBytes += i
 
         calcuatedChecksum = (sumOfAllBytes & 0b11111111) ^ 0b11111111
 
-        if raw[-2] != calcuatedChecksum:
-            print("fail")
+        if allegedChecksum != calcuatedChecksum:
+            return [None, None]
 
-        return raw[5:-2]
+        stateByte = inputBytes[2]
 
+        lengthByte = inputBytes[3]
 
+        if lengthByte != 0:
+            rxData = inputBytes[4:-1]
+        else:
+            rxData = 0
 
-    
-    def read_serial_number(self):
+        return [rxData, stateByte]
+
+    def get_values(self):
         self.uart.read()
 
-        self.uart.write(b'\x7E\x00\xD0\x01\x03\x2B\x7E')
+        self.send(b'\x03', b'')
 
-        raw = self.reverse_byte_stuffing(self.uart.read())
+        time.sleep(0.030)
+
+        returnData = self.read()
+
+        if returnData[0] == None:
+            values = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+        else:
+            values = struct.unpack(">ffffffffff", returnData[0])
+
+        return [values, returnData[1]]
+
+    
+    def device_info(self, requestedInfo):
+        self.uart.read()
+
+        if requestedInfo == "productType":
+            self.send(b'\xD0', b'\x00')
         
-        serial_number = raw[5:-3].decode('ascii')
+        elif requestedInfo == "serialNumber":
+            self.send(b'\xD0', b'\x03')
 
-        return serial_number
+        time.sleep(0.030)
+
+        returnData = self.read()
+        
+        values = returnData[0]
+
+        values = values[0:-1].decode('ascii')
+
+        return [values, returnData[1]]
 
     def trigger_fan_clean(self):
         self.uart.read()
 
-        self.uart.write(b'\x7E\x00\x56\x00\xA9\x7E')
+        self.send(b'\x56', b'')
 
-        return
+        time.sleep(0.030)
+
+        returnData = self.read()
+
+        return returnData[1]
 
     def sleep(self):
         self.uart.read()
 
-        self.uart.write(b'\x7E\x00\x10\x00\xEF\x7E')
+        self.send(b'\x10', b'')
 
-        return
+        time.sleep(0.030)
+
+        returnData = self.read()
+
+        return returnData[1]
 
     def soft_reset(self):
         self.uart.read()
 
-        self.uart.write(b'\x7E\x00\xD3\x00\x2C\x7E')
+        self.send(b'\xD3', b'')
 
-        return
+        time.sleep(0.030)
+
+        returnData = self.read()
+
+        return returnData[1]
 
     def wake(self):
         self.uart.read()
 
-        self.uart.write(b'\xFF')
+        self.send(b'\x11', b'')
 
-        self.uart.write(b'\x7E\x00\x11\x00\xEE\x7E')
+        time.sleep(0.030)
 
-        raw = self.reverse_byte_stuffing(self.uart.read())
+        self.send(b'\x11', b'')
 
-        return raw
-    
+        returnData = self.read()
 
-    def read_firmware_version(self):
+        return returnData[1]
+
+    def read_version(self):
         self.uart.read()
 
-        self.uart.write(b'\x7E\x00\xD1\x00\x2E\x7E')
+        self.send(b'\xD1',b'')
 
-        raw = self.reverse_byte_stuffing(self.uart.read())
+        time.sleep(0.030)
 
-        data = raw[5:-2]
+        returnData = self.read()
 
-        data = struct.unpack(">bbbbbbb", data)
+        versionsPreSplit = returnData[0]
 
-        firmware_version = str(data[0]) + "." + str(data[1])
+        firmwareVer = str(versionsPreSplit[0]) + "." + str(versionsPreSplit[1])
 
-        return firmware_version
+        hardwareRev = str(versionsPreSplit[3])
 
-    def reverse_byte_stuffing(self, raw):
-        if b'\x7D\x5E' in raw:
-            raw = raw.replace(b'\x7D\x5E', b'\x7E')
+        SHDLCVer = str(versionsPreSplit[5]) + "." + str(versionsPreSplit[6])
 
-        if b'\x7D\x5D' in raw:
-            raw = raw.replace(b'\x7D\x5D', b'\x7D')
-
-        if b'\x7D\x31' in raw:
-            raw = raw.replace(b'\x7D\x31', b'\x11')
-        
-        if b'\x7D\x33' in raw:
-            raw = raw.replace(b'\x7D\x33', b'\x13')
-
-        return raw
+        return [[firmwareVer, hardwareRev, SHDLCVer], returnData[1]]
