@@ -57,17 +57,13 @@ class SPS30:
 
         buildFrame += calculatedChecksum.to_bytes(1,"big")
 
-        if b'\x7E' in buildFrame:
-            buildFrame = buildFrame.replace(b'\x7E', b'\x7D\x5E')
+        buildFrame = buildFrame.replace(b'\x7D', b'\x7D\x5D')
 
-        if b'\x7D' in buildFrame:
-            buildFrame = buildFrame.replace(b'\x7D', b'\x7D\x5D')
+        buildFrame = buildFrame.replace(b'\x7E', b'\x7D\x5E')
 
-        if b'\x11' in buildFrame:
-            buildFrame = buildFrame.replace(b'\x11', b'\x7D\x31')
+        buildFrame = buildFrame.replace(b'\x11', b'\x7D\x31')
         
-        if b'\x13' in buildFrame:
-            buildFrame = buildFrame.replace(b'\x13', b'\x7D\x33')
+        buildFrame = buildFrame.replace(b'\x13', b'\x7D\x33')
         #Byte-stuffing (essentially escape codes). Prevents special bytes appearing legitimately within the frame data.
 
         buildFrame  = b'\x7E' + buildFrame + b'\x7E'
@@ -86,17 +82,13 @@ class SPS30:
         inputBytes = inputBytes[1:-1]
         #Trim the start/stop bytes.
 
-        if b'\x7D\x5E' in inputBytes:
-            inputBytes = inputBytes.replace(b'\x7D\x5E', b'\x7E')
-
-        if b'\x7D\x5D' in inputBytes:
-            inputBytes = inputBytes.replace(b'\x7D\x5D', b'\x7D')
-
-        if b'\x7D\x31' in inputBytes:
-            inputBytes = inputBytes.replace(b'\x7D\x31', b'\x11')
+        inputBytes = inputBytes.replace(b'\x7D\x5E', b'\x7E')
         
-        if b'\x7D\x33' in inputBytes:
-            inputBytes = inputBytes.replace(b'\x7D\x33', b'\x13')
+        inputBytes = inputBytes.replace(b'\x7D\x31', b'\x11')
+
+        inputBytes = inputBytes.replace(b'\x7D\x33', b'\x13')
+
+        inputBytes = inputBytes.replace(b'\x7D\x5D', b'\x7D')
         #Reverse byte-stuffing, as above.
 
         allegedChecksum = inputBytes[-1]
