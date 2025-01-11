@@ -117,7 +117,7 @@ class SPS30:
         return [rxData, stateByte]
 
     def start(self):
-        self.self.led.toggle()
+        self.led.toggle()
     
         self.uart.read()
         #Flush buffer.
