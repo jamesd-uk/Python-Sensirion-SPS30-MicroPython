@@ -117,7 +117,7 @@ class SPS30:
         return [rxData, stateByte]
 
     def start(self):
-        led.toggle()
+        self.self.led.toggle()
     
         self.uart.read()
         #Flush buffer.
@@ -130,12 +130,12 @@ class SPS30:
         returnData = self.read()
         #The SPS30 will only return an empty frame for this command, but the state byte is worth getting.
 
-        led.toggle()
+        self.led.toggle()
 
         return returnData[1]
 
     def stop(self):
-        led.toggle()
+        self.led.toggle()
 
         self.uart.read()
 
@@ -145,12 +145,12 @@ class SPS30:
 
         returnData = self.read()
 
-        led.toggle()
+        self.led.toggle()
 
         return returnData[1]
 
     def read_values(self):
-        led.toggle()
+        self.led.toggle()
 
         self.uart.read()
 
@@ -168,12 +168,12 @@ class SPS30:
             values = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
         #Unpack returned bytes into an array of floating point numbers.
 
-        led.toggle()
+        self.led.toggle()
 
         return [values, returnData[1]]
 
     def sleep(self):
-        led.toggle()
+        self.led.toggle()
         
         self.uart.read()
 
@@ -183,12 +183,12 @@ class SPS30:
 
         returnData = self.read()
 
-        led.toggle()
+        self.led.toggle()
 
         return returnData[1]
 
     def wake(self):
-        led.toggle()
+        self.led.toggle()
 
         self.uart.read()
 
@@ -203,12 +203,12 @@ class SPS30:
 
         returnData = self.read()
 
-        led.toggle()
+        self.led.toggle()
 
         return returnData[1]
 
     def trigger_fan_clean(self):
-        led.toggle()
+        self.led.toggle()
 
         self.uart.read()
 
@@ -218,14 +218,14 @@ class SPS30:
 
         returnData = self.read()
 
-        led.toggle()
+        self.led.toggle()
 
         return returnData[1]
 
     def read_cleaning_interval(self):
         #This doesn't work yet.
 
-        led.toggle()
+        self.led.toggle()
 
         self.uart.read()
 
@@ -235,12 +235,12 @@ class SPS30:
 
         returnData = self.read()
 
-        led.toggle()
+        self.led.toggle()
 
         return [returnData[0], returnData[1]]
     
     def device_info(self, requestedInfo):
-        led.toggle()
+        self.led.toggle()
 
         self.uart.read()
 
@@ -258,12 +258,12 @@ class SPS30:
 
         values = values[0:-1].decode('ascii')
 
-        led.toggle()
+        self.led.toggle()
 
         return [values, returnData[1]]
 
     def read_version(self):
-        led.toggle()
+        self.led.toggle()
 
         self.uart.read()
 
@@ -281,12 +281,12 @@ class SPS30:
 
         SHDLCVer = str(versionsPreSplit[5]) + "." + str(versionsPreSplit[6])
 
-        led.toggle()
+        self.led.toggle()
 
         return [[firmwareVer, hardwareRev, SHDLCVer], returnData[1]]
 
     def read_register(self, toClear):
-        led.toggle()
+        self.led.toggle()
         
         self.uart.read()
 
@@ -304,12 +304,12 @@ class SPS30:
 
         registerData = struct.unpack("bbbb", registerData)
 
-        led.toggle()
+        self.led.toggle()
 
         return [registerData, returnData[1]]
 
     def reset(self):
-        led.toggle()
+        self.led.toggle()
         
         self.uart.read()
 
@@ -319,6 +319,6 @@ class SPS30:
 
         returnData = self.read()
 
-        led.toggle()
+        self.led.toggle()
 
         return returnData[1]
